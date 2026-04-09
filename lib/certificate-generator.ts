@@ -107,58 +107,103 @@ async function getImageBytes(source: string): Promise<Uint8Array> {
   
   try {
     if (trimmedSource.startsWith("data:")) {
-      const parts = trimmedSource.split(",")
-      if (parts.length < 2) {
-        throw new Error("Invalid data URL format")
+      // Handle base64 data URLs
+      const commaIndex = trimmedSource.indexOf(",")
+      if (commaIndex === -1) {
+        throw new Error("Invalid data URL format - no comma found")
       }
-      return Buffer.from(parts[1], "base64")
+      const base64Data = trimmedSource.substring(commaIndex + 1)
+      if (!base64Data || base64Data.length === 0) {
+        throw new Error("Invalid data URL format - empty base64 data")
+      }
+      console.log("[v0] Decoding base64 image, length:", base64Data.length)
+      return Buffer.from(base64Data, "base64")
     }
 
-    const response = await fetch(trimmedSource)
+    // Handle remote URLs
+    console.log("[v0] Fetching remote image:", trimmedSource.substring(0, 100))
+    const response = await fetch(trimmedSource, {
+      headers: {
+        'User-Agent': 'CertifyPro-Certificate-Generator/1.0',
+      },
+    })
     if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.statusText}`)
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`)
     }
     const arrayBuffer = await response.arrayBuffer()
+    console.log("[v0] Remote image fetched, size:", arrayBuffer.byteLength)
     return Buffer.from(arrayBuffer)
   } catch (error) {
-    console.error("getImageBytes error:", error, "source:", source?.substring(0, 50))
+    console.error("[v0] getImageBytes error:", error instanceof Error ? error.message : error)
+    console.error("[v0] Source preview:", source?.substring(0, 100))
     throw error
   }
 }
 
 async function embedImage(pdfDoc: PDFDocument, source: string): Promise<any> {
   if (!source || source.trim() === "") {
-    console.warn("embedImage: Empty or invalid source")
+    console.warn("[v0] embedImage: Empty or invalid source")
     return null
   }
 
   try {
     const bytes = await getImageBytes(source)
-    console.log("Image bytes obtained successfully, size:", bytes.length)
+    console.log("[v0] Image bytes obtained successfully, size:", bytes.length)
     
-    if (source.includes("application/pdf") || source.match(/\.pdf($|\?)/i)) {
-      console.log("Embedding as PDF")
+    // Detect image type from data URL or file extension
+    const lowerSource = source.toLowerCase()
+    
+    if (lowerSource.includes("application/pdf") || lowerSource.match(/\.pdf($|\?)/i)) {
+      console.log("[v0] Embedding as PDF")
       const pages = await pdfDoc.embedPdf(bytes)
       return pages[0]
     }
-    if (source.includes("image/png") || source.match(/\.png($|\?)/i)) {
-      console.log("Embedding as PNG")
-      return await pdfDoc.embedPng(bytes)
-    }
-    if (source.includes("image/jpeg") || source.includes("image/jpg") || source.match(/\.(jpeg|jpg)($|\?)/i)) {
-      console.log("Embedding as JPEG")
-      return await pdfDoc.embedJpg(bytes)
-    }
-    if (source.includes("image/webp") || source.match(/\.webp($|\?)/i)) {
-      console.log("Embedding WEBP as PNG")
+    
+    if (lowerSource.includes("image/png") || lowerSource.match(/\.png($|\?)/i)) {
+      console.log("[v0] Embedding as PNG")
       return await pdfDoc.embedPng(bytes)
     }
     
-    // Try JPEG as default fallback
-    console.log("Using JPEG fallback")
-    return await pdfDoc.embedJpg(bytes)
+    if (lowerSource.includes("image/jpeg") || lowerSource.includes("image/jpg") || lowerSource.match(/\.(jpeg|jpg)($|\?)/i)) {
+      console.log("[v0] Embedding as JPEG")
+      return await pdfDoc.embedJpg(bytes)
+    }
+    
+    if (lowerSource.includes("image/webp") || lowerSource.match(/\.webp($|\?)/i)) {
+      console.log("[v0] Converting WEBP - attempting PNG embed")
+      try {
+        return await pdfDoc.embedPng(bytes)
+      } catch {
+        console.log("[v0] PNG failed for WEBP, trying JPEG")
+        return await pdfDoc.embedJpg(bytes)
+      }
+    }
+    
+    // Try to detect from bytes header (magic numbers)
+    if (bytes.length >= 8) {
+      // PNG magic number: 89 50 4E 47 0D 0A 1A 0A
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+        console.log("[v0] Detected PNG from magic bytes")
+        return await pdfDoc.embedPng(bytes)
+      }
+      // JPEG magic number: FF D8 FF
+      if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+        console.log("[v0] Detected JPEG from magic bytes")
+        return await pdfDoc.embedJpg(bytes)
+      }
+    }
+    
+    // Try PNG first, then JPEG as fallback
+    console.log("[v0] Unknown format, trying PNG first")
+    try {
+      return await pdfDoc.embedPng(bytes)
+    } catch (pngError) {
+      console.log("[v0] PNG embed failed, trying JPEG:", pngError instanceof Error ? pngError.message : pngError)
+      return await pdfDoc.embedJpg(bytes)
+    }
   } catch (error) {
-    console.error("embedImage error:", error instanceof Error ? error.message : error, "source length:", source?.length, "source preview:", source?.substring(0, 100))
+    console.error("[v0] embedImage error:", error instanceof Error ? error.message : error)
+    console.error("[v0] Source length:", source?.length, "Preview:", source?.substring(0, 100))
     return null
   }
 }
@@ -541,6 +586,8 @@ async function drawModernTemplate(page: any, width: number, height: number, inpu
   const lineHeight = input.elementSizes?.lineHeight || 4
   const titleFontSize = input.elementSizes?.title?.fontSize || 24
   const candidateNameFontSize = input.elementSizes?.candidateName?.fontSize || 36
+  const eventNameFontSize = input.elementSizes?.eventName?.fontSize || 18
+  const descriptionFontSize = input.elementSizes?.description?.fontSize || 14
   
   // Left accent bar
   page.drawRectangle({ x: 0, y: 0, width: 8, height, color: accentRgb })
@@ -566,14 +613,10 @@ async function drawModernTemplate(page: any, width: number, height: number, inpu
     page.drawRectangle({ x: candidateNamePosition.x - 60, y: candidateNamePosition.y - 15, width: 120, height: 3, color: accentRgb })
   }
 
-  // Body text - just show event name
-  let yPos = height - 270
+  // Body text - event name with proper font size from template settings
   if (input.enabledElements?.eventName !== false) {
-    const font = headingFont
-    const size = 18
-    const lineWidth = font.widthOfTextAtSize(input.eventName, size)
-    page.drawText(input.eventName, { x: (width - lineWidth) / 2, y: yPos, size, font, color: primaryRgb })
-    yPos -= 35
+    const eventNamePosition = getTextPosition(input.elementPositions?.eventName, width, height, eventNameFontSize)
+    drawTextAtPosition(page, input.eventName, headingFont, eventNameFontSize, primaryRgb, eventNamePosition)
   }
 
   if (input.enabledElements?.customFields !== false && input.customFields && input.customFields.length > 0) {
@@ -600,6 +643,12 @@ async function drawModernTemplate(page: any, width: number, height: number, inpu
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function drawAcademicTemplate(page: any, width: number, height: number, input: CertificateInput, primaryRgb: any, accentRgb: any, headingFont: any, italicFont: any, bodyFont: any, qrImage: any) {
+  // Get font sizes from template settings
+  const titleFontSize = input.elementSizes?.title?.fontSize || 34
+  const candidateNameFontSize = input.elementSizes?.candidateName?.fontSize || 30
+  const eventNameFontSize = input.elementSizes?.eventName?.fontSize || 20
+  const descriptionFontSize = input.elementSizes?.description?.fontSize || 13
+
   // Double border
   page.drawRectangle({ x: 15, y: 15, width: width - 30, height: height - 30, borderColor: primaryRgb, borderWidth: 2.5 })
   page.drawRectangle({ x: 22, y: 22, width: width - 44, height: height - 44, borderColor: primaryRgb, borderWidth: 0.8 })
@@ -614,8 +663,8 @@ async function drawAcademicTemplate(page: any, width: number, height: number, in
   // Certificate title
   if (input.enabledElements?.title !== false) {
     const titleText = input.title || "Certificate of Achievement"
-    const titlePosition = getTextPosition(input.elementPositions?.title, width, height, 34)
-    drawTextAtPosition(page, titleText, italicFont, 34, primaryRgb, titlePosition)
+    const titlePosition = getTextPosition(input.elementPositions?.title, width, height, titleFontSize)
+    drawTextAtPosition(page, titleText, italicFont, titleFontSize, primaryRgb, titlePosition)
   }
 
   // Decorative lines
@@ -623,14 +672,15 @@ async function drawAcademicTemplate(page: any, width: number, height: number, in
 
   if (input.enabledElements?.description !== false) {
     const presentedText = input.description || "This is to certify that"
-    const descriptionPosition = getTextPosition(input.elementPositions?.description, width, height, 13)
-    drawTextAtPosition(page, presentedText, bodyFont, 13, primaryRgb, descriptionPosition)
+    const descriptionPosition = getTextPosition(input.elementPositions?.description, width, height, descriptionFontSize)
+    drawTextAtPosition(page, presentedText, bodyFont, descriptionFontSize, primaryRgb, descriptionPosition)
   }
 
-  // Name
+  // Name - use candidateNameFontSize from template settings
+  let candidateNamePosition = { x: width / 2, y: height / 2 } // Default position
   if (input.enabledElements?.candidateName !== false) {
-    const candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, 30)
-    drawTextAtPosition(page, input.candidateName, headingFont, 30, primaryRgb, candidateNamePosition)
+    candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, candidateNameFontSize)
+    drawTextAtPosition(page, input.candidateName, headingFont, candidateNameFontSize, primaryRgb, candidateNamePosition)
 
     page.drawLine({ start: { x: candidateNamePosition.x - 140, y: candidateNamePosition.y - 10 }, end: { x: candidateNamePosition.x + 140, y: candidateNamePosition.y - 10 }, thickness: 1.5, color: accentRgb })
   }
@@ -640,8 +690,8 @@ async function drawAcademicTemplate(page: any, width: number, height: number, in
     const completedWidth = bodyFont.widthOfTextAtSize(completedText, 12)
     page.drawText(completedText, { x: (width - completedWidth) / 2, y: candidateNamePosition.y - 40, size: 12, font: bodyFont, color: primaryRgb })
 
-    const eventNamePosition = getTextPosition(input.elementPositions?.eventName, width, height, 20)
-    drawTextAtPosition(page, input.eventName, italicFont, 20, primaryRgb, eventNamePosition)
+    const eventNamePosition = getTextPosition(input.elementPositions?.eventName, width, height, eventNameFontSize)
+    drawTextAtPosition(page, input.eventName, italicFont, eventNameFontSize, primaryRgb, eventNamePosition)
   }
 
   if (input.enabledElements?.customFields !== false && input.customFields && input.customFields.length > 0) {
