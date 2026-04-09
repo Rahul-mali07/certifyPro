@@ -52,12 +52,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Template not found - please select a valid template" }, { status: 404 })
     }
 
-    console.log("Template loaded:", {
+    console.log("[v0] Template loaded:", {
       name: template.name,
-      logoUrl: template.logoUrl ? "present" : "absent",
-      signatureUrl: template.signatureUrl ? "present" : "absent",
-      elementPositions: (template as any).elementPositions,
+      logoUrl: template.logoUrl ? `present (${String(template.logoUrl).substring(0, 50)}...)` : "absent",
+      signatureUrl: template.signatureUrl ? `present (${String(template.signatureUrl).substring(0, 50)}...)` : "absent",
+      backgroundUrl: template.backgroundUrl ? `present (${String(template.backgroundUrl).substring(0, 50)}...)` : "absent",
+      logos: (template as any).logos?.length || 0,
+      signatures: (template as any).signatures?.length || 0,
+      elementPositions: (template as any).elementPositions ? "present" : "absent",
       enabledElements: (template as any).enabledElements,
+      elementSizes: (template as any).elementSizes ? "present" : "absent",
     })
 
     // Validate candidate IDs

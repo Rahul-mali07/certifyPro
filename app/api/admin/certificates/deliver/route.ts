@@ -52,24 +52,32 @@ export async function POST(request: NextRequest) {
     }
 
     if (deliveryMethod === "email") {
+      console.log("[v0] Starting email delivery for", certificates.length, "certificates")
+      let successCount = 0
+      let failCount = 0
+
       const emailPromises = certificates.map((cert: any) =>
         (async () => {
           const candidateEmail = cert.candidateId?.email || recipientEmail
+          console.log(`[v0] Processing email for ${cert.candidateName}: ${candidateEmail || "no email"}`)
+          
           if (!candidateEmail) {
+            console.warn(`[v0] No email found for ${cert.candidateName}`)
             await Notification.create({
               certificateId: cert._id,
-              recipientEmail: "unknown",
+              recipientEmail: "no-email@unknown.com",
               type: "email",
               deliveryMethod: "email",
               status: "failed",
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            failCount++
             return
           }
 
           try {
-            await sendEmailNotification({
+            const result = await sendEmailNotification({
               to: candidateEmail,
               candidateName: cert.candidateName,
               eventName: cert.eventName || "your event",
@@ -77,6 +85,8 @@ export async function POST(request: NextRequest) {
               verificationUrl: cert.verificationUrl,
             })
 
+            console.log(`[v0] Email result for ${cert.candidateName}:`, result)
+
             await Notification.create({
               certificateId: cert._id,
               recipientEmail: candidateEmail,
@@ -86,8 +96,9 @@ export async function POST(request: NextRequest) {
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            successCount++
           } catch (error) {
-            console.error("[v0] Email send error:", error)
+            console.error("[v0] Email send error for", cert.candidateName, ":", error)
             await Notification.create({
               certificateId: cert._id,
               recipientEmail: candidateEmail,
@@ -97,26 +108,39 @@ export async function POST(request: NextRequest) {
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            failCount++
           }
         })()
       )
 
       await Promise.all(emailPromises)
 
+      console.log(`[v0] Email delivery complete: ${successCount} sent, ${failCount} failed`)
+
       return NextResponse.json({
         success: true,
-        message: "Certificates sent via email",
+        message: `Certificates sent via email (${successCount} sent, ${failCount} failed)`,
         count: certificates.length,
+        sent: successCount,
+        failed: failCount,
       })
     }
 
     if (deliveryMethod === "sms") {
+      console.log("[v0] Starting SMS delivery for", certificates.length, "certificates")
+      let successCount = 0
+      let failCount = 0
+
       const smsPromises = certificates.map((cert: any) =>
         (async () => {
           const phoneNumber = cert.candidateId?.mobile || recipientPhone
+          console.log(`[v0] Processing SMS for ${cert.candidateName}: ${phoneNumber || "no phone"}`)
+          
           if (!phoneNumber) {
+            console.warn(`[v0] No phone number found for ${cert.candidateName}`)
             await Notification.create({
               certificateId: cert._id,
+              recipientEmail: cert.candidateId?.email || "unknown",
               recipientMobile: "unknown",
               type: "sms",
               deliveryMethod: "sms",
@@ -124,11 +148,12 @@ export async function POST(request: NextRequest) {
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            failCount++
             return
           }
 
           try {
-            await sendSMSNotification({
+            const result = await sendSMSNotification({
               to: phoneNumber,
               candidateName: cert.candidateName,
               eventName: cert.eventName || "Event",
@@ -136,8 +161,11 @@ export async function POST(request: NextRequest) {
               verificationUrl: cert.verificationUrl,
             })
 
+            console.log(`[v0] SMS result for ${cert.candidateName}:`, result)
+
             await Notification.create({
               certificateId: cert._id,
+              recipientEmail: cert.candidateId?.email || "unknown",
               recipientMobile: phoneNumber,
               type: "sms",
               deliveryMethod: "sms",
@@ -145,10 +173,12 @@ export async function POST(request: NextRequest) {
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            successCount++
           } catch (error) {
-            console.error("[v0] SMS send error:", error)
+            console.error("[v0] SMS send error for", cert.candidateName, ":", error)
             await Notification.create({
               certificateId: cert._id,
+              recipientEmail: cert.candidateId?.email || "unknown",
               recipientMobile: phoneNumber,
               type: "sms",
               deliveryMethod: "sms",
@@ -156,16 +186,21 @@ export async function POST(request: NextRequest) {
               certCode: cert.certificateId,
               candidateName: cert.candidateName,
             })
+            failCount++
           }
         })()
       )
 
       await Promise.all(smsPromises)
 
+      console.log(`[v0] SMS delivery complete: ${successCount} sent, ${failCount} failed`)
+
       return NextResponse.json({
         success: true,
-        message: "Certificates sent via SMS",
+        message: `Certificates sent via SMS (${successCount} sent, ${failCount} failed)`,
         count: certificates.length,
+        sent: successCount,
+        failed: failCount,
       })
     }
 
