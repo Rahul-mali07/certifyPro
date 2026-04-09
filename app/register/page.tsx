@@ -55,11 +55,17 @@ export default function RegisterPage() {
 
       toast.success("Account created successfully!")
 
-      if (data.user.role === "admin") {
-        router.push("/admin")
-      } else {
-        router.push("/dashboard")
-      }
+      // Force refresh to update cookie state before navigation
+      router.refresh()
+      
+      // Small delay to ensure cookies are set before redirect
+      setTimeout(() => {
+        if (data.user.role === "admin") {
+          window.location.href = "/admin"
+        } else {
+          window.location.href = "/dashboard"
+        }
+      }, 100)
     } catch {
       toast.error("Something went wrong")
       setLoading(false)

@@ -15,10 +15,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/register") ||
     pathname.startsWith("/verify") ||
+    pathname.startsWith("/organization/login") ||
+    pathname.startsWith("/organization/register") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/verify") ||
     pathname.startsWith("/api/seed") ||
     pathname.startsWith("/api/certificates") ||
+    pathname.startsWith("/api/organization") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.includes(".")
