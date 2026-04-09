@@ -8,7 +8,59 @@ export async function GET() {
     // await requireAdmin() // Temporarily disabled for testing
     await connectDB()
 
-    const templates = await Template.find().sort({ isDefault: -1, createdAt: 1 }).lean()
+    // Get templates without sorting to avoid MongoDB memory issues
+    let templates = await Template.find()
+      .select('_id name description layoutKey fontStyle primaryColor accentColor isDefault backgroundUrl')
+      .limit(100)
+      .lean()
+      .exec()
+    
+    // Sort templates in memory instead
+    if (templates && Array.isArray(templates)) {
+      templates = templates.sort((a: any, b: any) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0))
+    }
+    if (!templates || templates.length === 0) {
+      // Auto-seed a default template
+      const defaultTemplate = await Template.create({
+        name: "Default Certificate",
+        description: "This is a default auto-generated template.",
+        layoutKey: "classic",
+        fontStyle: "serif",
+        primaryColor: "#1e3a5f",
+        accentColor: "#c8a45a",
+        logoUrl: "",
+        backgroundUrl: "https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png",
+        signatureUrl: "",
+        logos: [],
+        signatures: [],
+        signaturePosition: undefined,
+        logoPosition: undefined,
+        fields: [],
+        customFields: [],
+        elementPositions: undefined,
+        enabledElements: {
+          title: true,
+          description: true,
+          candidateName: true,
+          eventName: true,
+          logo: true,
+          signature: true,
+          date: true,
+          qr: true,
+          customFields: true,
+        },
+        elementSizes: {
+          title: { fontSize: 48, fontWeight: 'bold' },
+          description: { fontSize: 14 },
+          candidateName: { fontSize: 40, fontWeight: 'bold' },
+          eventName: { fontSize: 24 },
+          logo: { width: 100, height: 100 },
+          signature: { width: 150, height: 60 },
+        },
+        isDefault: true,
+      })
+      templates = [(defaultTemplate as any).toJSON ? (defaultTemplate as any).toJSON() : (defaultTemplate as any)]
+    }
     return NextResponse.json({ templates })
   } catch (error) {
     console.error("Get templates error:", error)

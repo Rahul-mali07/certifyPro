@@ -11,8 +11,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ColorPicker } from "@/components/color-picker"
 import { Plus, X, Loader2, Upload, Download, FileText, Palette, Image, Type } from "lucide-react"
+
 import { toast } from "sonner"
 import type { Template } from "@/lib/types"
+
+type ElementPositionKey = 'title' | 'description' | 'candidateName' | 'eventName' | 'logo' | 'signature' | 'qr' | 'certificateId';
+type ElementPositions = Record<ElementPositionKey, { x: number; y: number; width: number; height: number }>
 
 interface TemplateEditorProps {
   template?: Template
@@ -91,7 +95,7 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
     startFontSize?: number
   } | null>(null)
   const [previewContainerRef, setPreviewContainerRef] = useState<HTMLDivElement | null>(null)
-  const [elementPositions, setElementPositions] = useState({
+  const [elementPositions, setElementPositions] = useState<ElementPositions>({
     title: { x: 50, y: 20, width: 80, height: 10 },
     description: { x: 50, y: 35, width: 80, height: 5 },
     candidateName: { x: 50, y: 50, width: 80, height: 8 },
@@ -256,14 +260,25 @@ export function TemplateEditor({ template, onSave }: TemplateEditorProps) {
       return
     }
 
-    setElementPositions(prev => ({
-      ...prev,
-      [draggedElement]: {
-        ...prev[draggedElement],
-        x: clampedX,
-        y: clampedY
-      }
-    }))
+    if ([
+      'title',
+      'description',
+      'candidateName',
+      'eventName',
+      'logo',
+      'signature',
+      'qr',
+      'certificateId',
+    ].includes(draggedElement)) {
+      setElementPositions(prev => ({
+        ...prev,
+        [draggedElement as ElementPositionKey]: {
+          ...prev[draggedElement as ElementPositionKey],
+          x: clampedX,
+          y: clampedY
+        }
+      }))
+    }
 
     // Update specific position states
     if (draggedElement === 'logo') {

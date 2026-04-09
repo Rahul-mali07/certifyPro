@@ -6,7 +6,6 @@ export async function generateQRCode(data: string): Promise<string> {
     const qrCodeDataUrl = await QRCode.toDataURL(data, {
       errorCorrectionLevel: "H",
       type: "image/png",
-      quality: 0.95,
       margin: 1,
       width: 300,
       color: {
@@ -25,8 +24,7 @@ export async function generateQRCodeSVG(data: string): Promise<string> {
   try {
     const svg = await QRCode.toString(data, {
       errorCorrectionLevel: "H",
-      type: "image/svg+xml",
-      quality: 0.95,
+      type: "svg",
       margin: 1,
       width: 300,
     })

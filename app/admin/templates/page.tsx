@@ -44,73 +44,39 @@ const isValidFileType = (file: File): { isValid: boolean; type: 'json' | 'image'
 function TemplatePreview({ template }: { template: Template }) {
   return (
     <Card className="overflow-hidden group hover:shadow-lg transition-shadow">
-      <div className="h-48 relative flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        {template.backgroundUrl ? (
-          <div className="w-full h-full relative">
-            {template.backgroundUrl.includes('application/pdf') ? (
-              <div className="w-full h-full bg-slate-200 flex items-center justify-center text-slate-500 text-sm font-medium">
-                📄 PDF Background
-              </div>
-            ) : (
-              <img
-                src={template.backgroundUrl}
-                alt="Template background"
-                className="w-full h-full object-cover"
-              />
-            )}
-            {/* Overlay with template elements */}
-            <div className="absolute inset-0 bg-black/10"></div>
-          </div>
-        ) : (
-          <div
-            className="w-[200px] h-[140px] rounded shadow-md flex flex-col items-center justify-center p-3"
-            style={{
-              backgroundColor: "#fff",
-              border: `2px solid ${template.primaryColor}`,
-            }}
-          >
-            <div
-              className="text-[8px] font-bold uppercase tracking-wider mb-1"
-              style={{ color: template.primaryColor }}
-            >
-              Certificate of Achievement
-            </div>
-            <div
-              className="w-12 h-[1px] mb-1"
-              style={{ backgroundColor: template.accentColor }}
-            />
-            <div
-              className="text-[10px] font-bold"
-              style={{
-                color: template.primaryColor,
-                fontFamily: template.fontStyle === "serif" ? "serif" : "sans-serif",
-              }}
-            >
-              Candidate Name
-            </div>
-            <div
-              className="w-16 h-[1px] my-1"
-              style={{ backgroundColor: template.accentColor }}
-            />
-            <div className="text-[6px]" style={{ color: template.primaryColor }}>
-              Event Name Here
-            </div>
-            <div className="flex gap-4 mt-2">
-              <div className="w-10 h-[0.5px]" style={{ backgroundColor: template.primaryColor }} />
-              <div className="w-10 h-[0.5px]" style={{ backgroundColor: template.primaryColor }} />
-            </div>
-          </div>
+      {/* Template Preview Container - MEDIUM SIZE */}
+      <div 
+        className="h-64 relative flex items-center justify-center bg-slate-200 overflow-hidden border-b-2 border-slate-300"
+        style={{
+          backgroundImage: template.backgroundUrl && !template.backgroundUrl.includes('application/pdf') 
+            ? `url('${template.backgroundUrl}')` 
+            : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        {/* Fallback for PDF or missing image */}
+        {(!template.backgroundUrl || template.backgroundUrl.includes('application/pdf')) && (
+          <div className="w-full h-full bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 absolute inset-0"></div>
         )}
+
+        {/* Default Badge */}
         {template.isDefault && (
-          <Badge className="absolute top-3 right-3" variant="default">Default</Badge>
+          <Badge className="absolute top-4 right-4 z-20 text-sm" variant="default">
+            Default
+          </Badge>
         )}
       </div>
+
+      {/* Template Info Section */}
       <CardHeader className="pb-2">
         <CardTitle className="text-lg text-foreground">{template.name}</CardTitle>
-        <CardDescription>{template.description}</CardDescription>
+        <CardDescription className="line-clamp-2">{template.description}</CardDescription>
       </CardHeader>
+
       <CardContent>
         <div className="space-y-4">
+          {/* Color Indicators */}
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded-full border" style={{ backgroundColor: template.primaryColor }} />
@@ -142,8 +108,21 @@ function TemplatePreview({ template }: { template: Template }) {
 }
 
 export default function TemplatesPage() {
-  const { data, isLoading, mutate } = useSWR("/api/admin/templates", fetcher)
-  const templates: Template[] = (data?.templates || []).filter((t: any) => t._id && String(t._id).trim() && t._id !== 'undefined' && t._id !== 'null')
+  const { data, error, isLoading, mutate } = useSWR("/api/admin/templates", fetcher)
+  let templates: Template[] = []
+  let fetchError = null
+  if (error) {
+    // Try to show backend error message if available
+    if (error.response && error.response.error) {
+      fetchError = error.response.error
+    } else if (error.message) {
+      fetchError = error.message
+    } else {
+      fetchError = "Failed to load templates."
+    }
+  } else if (data && Array.isArray(data.templates)) {
+    templates = data.templates.filter((t: any) => t._id && String(t._id).trim() && t._id !== 'undefined' && t._id !== 'null')
+  }
 
   const handleImportTemplate = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -289,6 +268,10 @@ export default function TemplatesPage() {
             </Card>
           ))}
         </div>
+      ) : fetchError ? (
+        <div className="text-red-500 font-semibold text-center py-8">{fetchError}</div>
+      ) : templates.length === 0 ? (
+        <div className="text-muted-foreground text-center py-8">No templates found. Please import or create a template.</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {templates.map((t) => (

@@ -12,6 +12,12 @@ interface CertificateInput {
   fontStyle: string
   verificationUrl: string
   backgroundUrl?: string
+  backgroundPosition?: {
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+  }
   logoUrl?: string
   signatureUrl?: string
   logos?: Array<{
@@ -63,6 +69,7 @@ interface CertificateInput {
     signature?: boolean
     date?: boolean
     qr?: boolean
+    customFields?: boolean
   }
   elementSizes?: {
     title?: { fontSize: number; fontWeight?: string }
@@ -100,11 +107,11 @@ function hexToRgb(hex: string) {
 
 async function getImageBytes(source: string): Promise<Uint8Array> {
   if (!source || source.trim() === "") {
+    console.error("Image source is empty for background image.");
     throw new Error("Image source is empty")
   }
 
   const trimmedSource = source.trim()
-  
   try {
     if (trimmedSource.startsWith("data:")) {
       const parts = trimmedSource.split(",")
@@ -114,14 +121,17 @@ async function getImageBytes(source: string): Promise<Uint8Array> {
       return Buffer.from(parts[1], "base64")
     }
 
+    console.log("Fetching image from URL:", trimmedSource)
     const response = await fetch(trimmedSource)
+    console.log("Image fetch status:", response.status, response.statusText)
     if (!response.ok) {
+      console.error(`Failed to fetch image: ${response.statusText} (${response.status}) for URL:`, trimmedSource)
       throw new Error(`Failed to fetch image: ${response.statusText}`)
     }
     const arrayBuffer = await response.arrayBuffer()
     return Buffer.from(arrayBuffer)
   } catch (error) {
-    console.error("getImageBytes error:", error, "source:", source?.substring(0, 50))
+    console.error("getImageBytes error:", error, "source:", source?.substring(0, 100))
     throw error
   }
 }
@@ -193,6 +203,29 @@ function getCustomFieldValue(field: { id: string; name: string; placeholder?: st
 }
 
 export async function generateCertificatePDF(input: CertificateInput): Promise<{ pdfBytes: Uint8Array; qrCodeData: string }> {
+
+  // Fallbacks for missing template fields
+  const fallbackElementSizes = {
+    title: { fontSize: 48, fontWeight: 'bold' },
+    description: { fontSize: 14 },
+    candidateName: { fontSize: 40, fontWeight: 'bold' },
+    eventName: { fontSize: 24 },
+    logo: { width: 100, height: 100 },
+    signature: { width: 150, height: 60 },
+    borderThickness: 3,
+    lineHeight: 1.5,
+    cornerSize: 20,
+  }
+  const fallbackElementPositions = {
+    title: { x: 50, y: 20, width: 80, height: 10 },
+    description: { x: 50, y: 35, width: 80, height: 5 },
+    candidateName: { x: 50, y: 50, width: 80, height: 8 },
+    eventName: { x: 50, y: 65, width: 80, height: 6 },
+    logo: { x: 10, y: 10, width: 15, height: 10 },
+    signature: { x: 70, y: 80, width: 20, height: 8 },
+    qr: { x: 85, y: 85, width: 12, height: 12 },
+    certificateId: { x: 50, y: 92, width: 40, height: 3 },
+  }
   const pdfDoc = await PDFDocument.create()
   const page = pdfDoc.addPage([842, 595]) // A4 Landscape
   const { width, height } = page.getSize()
@@ -207,7 +240,24 @@ export async function generateCertificatePDF(input: CertificateInput): Promise<{
     signature: input.enabledElements?.signature !== false,
     date: input.enabledElements?.date !== false,
     qr: input.enabledElements?.qr !== false,
-    customFields: input.enabledElements?.customFields !== false,
+    customFields: (input.enabledElements && typeof input.enabledElements.customFields !== 'undefined') ? input.enabledElements.customFields !== false : true,
+  }
+
+  // Use fallbacks for elementSizes and elementPositions if missing
+  if (!input.elementSizes) input.elementSizes = fallbackElementSizes
+  else input.elementSizes = { ...fallbackElementSizes, ...input.elementSizes }
+  if (!input.elementPositions) input.elementPositions = fallbackElementPositions
+  else input.elementPositions = { ...fallbackElementPositions, ...input.elementPositions }
+
+  // Fallback for logo and background
+  if (!input.logoUrl && input.logos && input.logos.length > 0) {
+    input.logoUrl = input.logos[0].url
+  }
+  // Fallback background image (public domain placeholder)
+  const fallbackBackgroundUrl = "https://upload.wikimedia.org/wikipedia/commons/4/47/PNG_transparency_demonstration_1.png";
+  if (!input.backgroundUrl || typeof input.backgroundUrl !== 'string' || input.backgroundUrl.trim() === "") {
+    console.warn("No backgroundUrl provided, using fallback background image.");
+    input.backgroundUrl = fallbackBackgroundUrl;
   }
 
   console.log("Certificate generation started", {
@@ -229,37 +279,72 @@ export async function generateCertificatePDF(input: CertificateInput): Promise<{
   const headingFont = input.fontStyle === "sans-serif" ? fontSans : fontSerif
   const bodyFont = input.fontStyle === "sans-serif" ? fontSansRegular : fontRegular
 
-  let backgroundImage: any = null
-  let logoImage: any = null
-  let signatureImage: any = null
 
+  // Preload images in parallel for speed
+  let backgroundImage = null;
+  let logoImage = null;
+  let signatureImage = null;
+  let triedFallback = false;
+  
   try {
-    if (input.backgroundUrl) {
-      console.log("Attempting to embed background image")
-      backgroundImage = await embedImage(pdfDoc, input.backgroundUrl)
-      console.log("Background embed result:", backgroundImage ? "success" : "null")
+    backgroundImage = input.backgroundUrl ? await embedImage(pdfDoc, input.backgroundUrl) : null;
+  } catch (e) {
+    console.error("Background image failed to embed:", e, "URL:", input.backgroundUrl);
+    if (!triedFallback && input.backgroundUrl !== fallbackBackgroundUrl) {
+      triedFallback = true;
+      console.warn("Retrying with fallback background image.");
+      try {
+        backgroundImage = await embedImage(pdfDoc, fallbackBackgroundUrl);
+        input.backgroundUrl = fallbackBackgroundUrl;
+        console.log("Fallback background image loaded successfully");
+      } catch (fallbackErr) {
+        console.error("Fallback background image also failed:", fallbackErr);
+        console.warn("Continuing without background image display");
+        backgroundImage = null;
+      }
+    } else {
+      console.warn("Continuing without background image - too many retries");
+      backgroundImage = null;
     }
-    if (input.logoUrl) {
-      console.log("Attempting to embed logo image")
-      logoImage = await embedImage(pdfDoc, input.logoUrl)
-      console.log("Logo embed result:", logoImage ? "success" : "null")
-    }
-    if (input.signatureUrl) {
-      console.log("Attempting to embed signature image")
-      signatureImage = await embedImage(pdfDoc, input.signatureUrl)
-      console.log("Signature embed result:", signatureImage ? "success" : "null")
-    }
-  } catch (error) {
-    console.warn("Certificate image embed failed:", error)
+  }
+  
+  try {
+    logoImage = input.logoUrl ? await embedImage(pdfDoc, input.logoUrl) : null;
+  } catch (e) {
+    console.error("Logo image failed to embed:", e, "URL:", input.logoUrl);
+    console.warn("Continuing without logo image");
+    logoImage = null;
+  }
+  
+  try {
+    signatureImage = input.signatureUrl ? await embedImage(pdfDoc, input.signatureUrl) : null;
+  } catch (e) {
+    console.error("Signature image failed to embed:", e, "URL:", input.signatureUrl);
+    console.warn("Continuing without signature image");
+    signatureImage = null;
   }
 
+  // Validate required text fields
+  function safeText(val: string | undefined, fallback: string) {
+    return (typeof val === 'string' && val.trim() !== '') ? val : fallback;
+  }
+
+  // Draw background image with custom position/size if provided
   if (backgroundImage) {
-    page.drawImage(backgroundImage, {
-      x: 0,
-      y: 0,
-      width,
-      height,
-    })
+    // Support custom background position/size via input.backgroundPosition
+    const bgPos = input.backgroundPosition || { x: 0, y: 0, width, height };
+    try {
+      page.drawImage(backgroundImage, {
+        x: typeof bgPos.x === 'number' ? bgPos.x : 0,
+        y: typeof bgPos.y === 'number' ? bgPos.y : 0,
+        width: typeof bgPos.width === 'number' ? bgPos.width : width,
+        height: typeof bgPos.height === 'number' ? bgPos.height : height,
+      });
+    } catch (err) {
+      console.error("Failed to draw background image:", err);
+    }
+  } else {
+    console.warn("No background image loaded for certificate PDF. Check backgroundUrl and image accessibility.");
   }
 
   // Generate QR Code
@@ -484,44 +569,36 @@ async function drawClassicTemplate(page: any, width: number, height: number, inp
   })
 
   // Header text
-  if (input.enabledElements?.title !== false) {
-    const titleText = input.title || "CERTIFICATE"
+  // Only show title if enabled and provided
+  if (input.enabledElements?.title !== false && typeof input.title === 'string' && input.title.trim() !== '') {
     const titlePosition = getTextPosition(input.elementPositions?.title, width, height, titleFontSize)
-    drawTextAtPosition(page, titleText, headingFont, titleFontSize, primaryRgb, titlePosition)
+    drawTextAtPosition(page, input.title, headingFont, titleFontSize, primaryRgb, titlePosition)
   }
 
-  if (input.enabledElements?.description !== false) {
-    const ofText = input.description || "OF ACHIEVEMENT"
+  // Only show description if enabled and provided
+  if (input.enabledElements?.description !== false && typeof input.description === 'string' && input.description.trim() !== '') {
     const descriptionPosition = getTextPosition(input.elementPositions?.description, width, height, input.elementSizes?.description?.fontSize || 16)
-    drawTextAtPosition(page, ofText, bodyFont, input.elementSizes?.description?.fontSize || 16, accentRgb, descriptionPosition)
+    drawTextAtPosition(page, input.description, bodyFont, input.elementSizes?.description?.fontSize || 16, accentRgb, descriptionPosition)
 
-    // Decorative line
-    page.drawLine({ start: { x: width / 2 - 100, y: height - 155 }, end: { x: width / 2 + 100, y: height - 155 }, thickness: lineHeight, color: accentRgb })
+    // Top decorative band
+    page.drawRectangle({ x: 22, y: height - 75, width: width - 44, height: 50, color: primaryRgb })
+
+    const orgText = "CERTIFYPRO INSTITUTION"
+    const orgWidth = headingFont.widthOfTextAtSize(orgText, 18)
+    page.drawText(orgText, { x: (width - orgWidth) / 2, y: height - 55, size: 18, font: headingFont, color: rgb(1, 1, 1) })
   }
 
-  // Candidate name
-  if (input.enabledElements?.candidateName !== false) {
-    const candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, candidateNameFontSize)
-    drawTextAtPosition(page, input.candidateName, headingFont, candidateNameFontSize, primaryRgb, candidateNamePosition)
-
-    // Name underline
-    page.drawLine({ start: { x: candidateNamePosition.x - 150, y: candidateNamePosition.y - 10 }, end: { x: candidateNamePosition.x + 150, y: candidateNamePosition.y - 10 }, thickness: lineHeight, color: accentRgb })
+  // Candidate name and completion text
+  let candidateNamePosition: { x: number; y: number } = { x: width / 2, y: height / 2 };
+  if (input.enabledElements?.candidateName !== false && typeof input.candidateName === 'string' && input.candidateName.trim() !== '') {
+    candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, 28)
+    drawTextAtPosition(page, input.candidateName, headingFont, 28, primaryRgb, candidateNamePosition)
   }
-
-  // Event text
-  if (input.enabledElements?.eventName !== false) {
-    const eventNamePosition = getTextPosition(input.elementPositions?.eventName, width, height, eventNameFontSize)
-    drawTextAtPosition(page, input.eventName, italicFont, eventNameFontSize, primaryRgb, eventNamePosition)
-  }
-
-  if (input.enabledElements?.customFields !== false && input.customFields && input.customFields.length > 0) {
-    input.customFields.forEach((field, index) => {
-      const fieldValue = getCustomFieldValue(field, input.candidateCustomData)
-      if (!fieldValue) return
-      const fieldSize = field.fontSize || 14
-      const position = getTextPosition(field, width, height, fieldSize)
-      drawTextAtPosition(page, `${field.name}: ${fieldValue}`, bodyFont, fieldSize, primaryRgb, position, "left")
-    })
+  // Completion text (optional, only if candidate name is present)
+  if (input.enabledElements?.candidateName !== false && typeof input.candidateName === 'string' && input.candidateName.trim() !== '') {
+    const completedText = "has successfully completed the requirements for"
+    const completedWidth = bodyFont.widthOfTextAtSize(completedText, 12)
+    page.drawText(completedText, { x: (width - completedWidth) / 2, y: candidateNamePosition.y - 40, size: 12, font: bodyFont, color: primaryRgb })
   }
 
   // Certificate ID - Fixed at bottom
@@ -581,7 +658,11 @@ async function drawModernTemplate(page: any, width: number, height: number, inpu
       const fieldValue = getCustomFieldValue(field, input.candidateCustomData)
       if (!fieldValue) return
       const fieldSize = field.fontSize || 14
-      const position = getTextPosition(field, width, height, fieldSize)
+      const safeField = {
+        x: typeof field.x === 'number' ? field.x : 50,
+        y: typeof field.y === 'number' ? field.y : 80,
+      }
+      const position = getTextPosition(safeField, width, height, fieldSize)
       drawTextAtPosition(page, `${field.name}: ${fieldValue}`, bodyFont, fieldSize, primaryRgb, position, "left")
     })
   }
@@ -600,6 +681,8 @@ async function drawModernTemplate(page: any, width: number, height: number, inpu
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function drawAcademicTemplate(page: any, width: number, height: number, input: CertificateInput, primaryRgb: any, accentRgb: any, headingFont: any, italicFont: any, bodyFont: any, qrImage: any) {
+    // Always define candidateNamePosition for use in completion text and event name
+    let candidateNamePosition = { x: width / 2, y: height / 2 };
   // Double border
   page.drawRectangle({ x: 15, y: 15, width: width - 30, height: height - 30, borderColor: primaryRgb, borderWidth: 2.5 })
   page.drawRectangle({ x: 22, y: 22, width: width - 44, height: height - 44, borderColor: primaryRgb, borderWidth: 0.8 })
@@ -629,9 +712,8 @@ async function drawAcademicTemplate(page: any, width: number, height: number, in
 
   // Name
   if (input.enabledElements?.candidateName !== false) {
-    const candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, 30)
+    candidateNamePosition = getTextPosition(input.elementPositions?.candidateName, width, height, 30)
     drawTextAtPosition(page, input.candidateName, headingFont, 30, primaryRgb, candidateNamePosition)
-
     page.drawLine({ start: { x: candidateNamePosition.x - 140, y: candidateNamePosition.y - 10 }, end: { x: candidateNamePosition.x + 140, y: candidateNamePosition.y - 10 }, thickness: 1.5, color: accentRgb })
   }
 
@@ -649,7 +731,11 @@ async function drawAcademicTemplate(page: any, width: number, height: number, in
       const fieldValue = getCustomFieldValue(field, input.candidateCustomData)
       if (!fieldValue) return
       const fieldSize = field.fontSize || 14
-      const position = getTextPosition(field, width, height, fieldSize)
+      const safeField = {
+        x: typeof field.x === 'number' ? field.x : 50,
+        y: typeof field.y === 'number' ? field.y : 80,
+      }
+      const position = getTextPosition(safeField, width, height, fieldSize)
       drawTextAtPosition(page, `${field.name}: ${fieldValue}`, bodyFont, fieldSize, primaryRgb, position, "left")
     })
   }

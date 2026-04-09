@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
       name: template.name,
       logoUrl: template.logoUrl ? "present" : "absent",
       signatureUrl: template.signatureUrl ? "present" : "absent",
+      backgroundUrl: template.backgroundUrl ? `present (${template.backgroundUrl.substring(0, 50)}...)` : "absent/empty",
       elementPositions: (template as any).elementPositions,
       enabledElements: (template as any).enabledElements,
     })
@@ -89,6 +90,25 @@ export async function POST(req: NextRequest) {
         day: "numeric",
       })
 
+      // Force enable all essential elements including title, description, background, and logo
+      const forcedEnabledElements = {
+        ...(template.enabledElements || {}),
+        title: true,
+        description: true,
+        candidateName: true,
+        eventName: true,
+        logo: true,
+        signature: true,
+        date: true,
+        qr: true,
+        customFields: true,
+      }
+      
+      // Ensure backgroundUrl is properly set
+      const backgroundUrl = template.backgroundUrl && template.backgroundUrl.trim() ? template.backgroundUrl : undefined
+      
+      console.log(`[Certificate Generation] Generating for candidate: ${candidate.name}, backgroundUrl: ${backgroundUrl ? 'SET' : 'MISSING'}`)
+      
       const { pdfBytes, qrCodeData } = await generateCertificatePDF({
         candidateName: candidate.name,
         eventName: candidate.eventName,
@@ -99,7 +119,8 @@ export async function POST(req: NextRequest) {
         accentColor: template.accentColor,
         fontStyle: template.fontStyle,
         verificationUrl,
-        backgroundUrl: template.backgroundUrl,
+        backgroundUrl: backgroundUrl,
+        backgroundPosition: (template as any).backgroundPosition,
         logoUrl: template.logoUrl,
         signatureUrl: template.signatureUrl,
         logos: (template as any).logos || [],
@@ -107,10 +128,10 @@ export async function POST(req: NextRequest) {
         signaturePosition: template.signaturePosition,
         logoPosition: (template as any).logoPosition,
         elementPositions: (template as any).elementPositions,
-        enabledElements: (template as any).enabledElements,
+        enabledElements: forcedEnabledElements,
         elementSizes: (template as any).elementSizes,
-        title: template.name,
-        description: template.description,
+        title: template.name || "Certificate",
+        description: template.description || "",
         customFields: (template as any).customFields || [],
         candidateCustomData: candidate.customData || {},
       })

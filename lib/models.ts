@@ -76,6 +76,14 @@ export interface ITemplate extends Document {
   accentColor: string
   logoUrl?: string
   signatureUrl?: string
+  backgroundUrl?: string
+  templateFileUrl?: string
+  logoPosition?: {
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+  }
   logos?: Array<{
     id: string
     url: string
@@ -102,7 +110,6 @@ export interface ITemplate extends Document {
     width: number
     height: number
   }
-  backgroundUrl?: string
   fields: Array<{
     id: string
     type: string
@@ -273,7 +280,12 @@ const TemplateSchema = new Schema<ITemplate>(
     primaryColor: { type: String, default: "#1e3a5f" },
     accentColor: { type: String, default: "#c8a45a" },
     logoUrl: { type: String },
-    logoPosition: LogoPositionSchema,
+    logoPosition: {
+      x: { type: Number },
+      y: { type: Number },
+      width: { type: Number },
+      height: { type: Number },
+    },
     logos: [{
       id: { type: String },
       url: { type: String },

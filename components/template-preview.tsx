@@ -34,6 +34,8 @@ export const TemplatePreview = memo(function TemplatePreview({
   logoUrl,
   signatureUrl,
   backgroundUrl,
+  logos = [],
+  signatures = [],
   fontStyle,
   onDragStart,
   onDragOver,
