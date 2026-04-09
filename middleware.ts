@@ -9,6 +9,8 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const token = request.cookies.get("auth-token")?.value
 
+  console.log("[v0] Middleware:", pathname, "Token:", token ? "present" : "missing")
+
   // Public routes - always accessible
   if (
     pathname === "/" ||
@@ -31,25 +33,31 @@ export async function middleware(request: NextRequest) {
 
   // Check auth for protected routes
   if (!token) {
+    console.log("[v0] Middleware: No token, redirecting to /login")
     return NextResponse.redirect(new URL("/login", request.url))
   }
 
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET)
     const role = payload.role as string
+    console.log("[v0] Middleware: Token valid, role:", role)
 
     // Admin routes
     if (pathname.startsWith("/admin") && role !== "admin") {
+      console.log("[v0] Middleware: Non-admin accessing /admin, redirect to /dashboard")
       return NextResponse.redirect(new URL("/dashboard", request.url))
     }
 
     // User routes
     if (pathname.startsWith("/dashboard") && role === "admin") {
+      console.log("[v0] Middleware: Admin accessing /dashboard, redirect to /admin")
       return NextResponse.redirect(new URL("/admin", request.url))
     }
 
+    console.log("[v0] Middleware: Access granted to", pathname)
     return NextResponse.next()
-  } catch {
+  } catch (error) {
+    console.log("[v0] Middleware: Token verification failed:", error)
     const response = NextResponse.redirect(new URL("/login", request.url))
     response.cookies.set("auth-token", "", { maxAge: 0, path: "/" })
     return response
