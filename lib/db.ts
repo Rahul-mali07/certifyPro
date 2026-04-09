@@ -27,13 +27,23 @@ export async function connectDB() {
     throw new Error("Please add MONGODB_URI to your environment variables. Go to Settings -> Vars to add it.")
   }
 
+  // Validate MongoDB URI format
+  const trimmedUri = MONGODB_URI.trim()
+  if (!trimmedUri.startsWith("mongodb://") && !trimmedUri.startsWith("mongodb+srv://")) {
+    throw new Error(
+      `Invalid MONGODB_URI format. The connection string must start with "mongodb://" or "mongodb+srv://". ` +
+      `Current value starts with: "${trimmedUri.substring(0, 20)}...". ` +
+      `Please update the MONGODB_URI in Settings -> Vars with a valid MongoDB connection string.`
+    )
+  }
+
   if (cached.conn) {
     return cached.conn
   }
 
   if (!cached.promise) {
     console.log("[v0] Connecting to MongoDB...")
-    cached.promise = mongoose.connect(MONGODB_URI, {
+    cached.promise = mongoose.connect(trimmedUri, {
       bufferCommands: false,
     })
   }
